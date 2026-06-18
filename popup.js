@@ -6,7 +6,7 @@ const resultsEl = document.getElementById('results');
 const SEARCH_PROVIDERS = [
   {
     name: 'DuckDuckGo',
-    url: 'https://r.jina.ai/http://www.duckduckgo.com/?q='
+    url: 'https://r.jina.ai/http://html.duckduckgo.com/html/?q='
   },
   {
     name: 'Google',
@@ -18,7 +18,8 @@ const SEARCH_PROVIDERS = [
   }
 ];
 const ITEM_PATTERN = /^\s*\d+\.\s+(?:.*?\[(.*?)\]\((https?:\/\/[^)]+)\)|([^\s].*?))$/;
-const RESULT_LINE_PATTERN = /^\s*\d+\.\s+(.+?)\s+(?:\[(?:Image \d+|[^\]]+)\]\((https?:\/\/[^)]+)\))?\(?/?/;
+const RESULT_LINE_PATTERN = /^#{1,6}\s*\[(.*?)\]\((https?:\/\/.+)\)$/;
+const SAFE_URL_REGEX = /https?:\/\/[^\s)]+/;
 const BLOCKED_HOSTS = new Set([
   'duckduckgo.com',
   'www.duckduckgo.com',
@@ -74,78 +75,82 @@ function decodeBingUrl(rawUrl) {
   }
 }
 
+function normalizeResultUrl(rawUrl) {
+  if (!rawUrl) return '';
+
+  const decoded = decodeBingUrl(rawUrl);
+  try {
+    const parsed = new URL(decoded);
+    if (parsed.hostname === 'duckduckgo.com' || parsed.hostname.endsWith('.duckduckgo.com')) {
+      const target = parsed.searchParams.get('uddg') || parsed.searchParams.get('url');
+      if (target) {
+        return normalizeResultUrl(target);
+      }
+    }
+    return parsed.toString();
+  } catch (error) {
+    return decoded;
+  }
+}
+
 function parseResults(rawText) {
   const lines = rawText.split(/\r?\n/);
   const results = [];
+  const seen = new Set();
 
   const addResult = (title, rawUrl, snippet = '') => {
     if (!title || !rawUrl) return;
-    const decodedUrl = decodeBingUrl(rawUrl);
+
+    const decodedUrl = normalizeResultUrl(rawUrl);
     if (!decodedUrl.startsWith('http') || isBlockedUrl(decodedUrl)) return;
 
     const clean = cleanTitle(title);
     if (!clean || BLOCKED_TITLES.has(clean)) return;
     if (SKIP_TITLE_PREFIXES.some((prefix) => clean.startsWith(prefix))) return;
     if (clean.includes('Search domain')) return;
+    if (clean.includes('![Image') || clean.includes('](')) return;
+    if (seen.has(decodedUrl)) return;
 
-    results.push({ title: clean, url: decodedUrl, snippet: cleanTitle(snippet) });
+    seen.add(decodedUrl);
+    results.push({
+      title: clean,
+      url: decodedUrl,
+      snippet: cleanTitle(snippet)
+    });
   };
 
-  const isResultMarker = (value) => /^\d+\.\s+/.test(value);
   const isIgnoredLine = (value) =>
     value.startsWith('Title:') ||
     value.startsWith('URL Source:') ||
     value.startsWith('Markdown Content:') ||
-    value.startsWith('Search results:');
+    value.startsWith('Search results:') ||
+    value.startsWith('[](') ||
+    value.startsWith('# ');
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i].trim();
-    const match = ITEM_PATTERN.exec(line);
+    const fallbackMatch = line.match(RESULT_LINE_PATTERN);
 
-    if (match) {
-      const title = match[1] || match[3];
-      const rawUrl = match[2];
-
-      if (!rawUrl || !title) {
-        continue;
-      }
-
-      let snippet = '';
-      for (let j = i + 1; j < lines.length; j += 1) {
-        const next = lines[j].trim();
-        if (!next) continue;
-        if (isResultMarker(next)) break;
-        if (isIgnoredLine(next)) continue;
-        if (next.startsWith('http')) continue;
-        snippet = next;
-        break;
-      }
-      addResult(title, rawUrl, snippet);
+    if (!fallbackMatch) {
+      continue;
     }
-  }
 
-  if (results.length === 0) {
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      const fallbackMatch = line.match(RESULT_LINE_PATTERN);
+    const title = fallbackMatch[1];
+    const rawUrl = fallbackMatch[2];
+    let snippet = '';
 
-      if (fallbackMatch) {
-        const title = fallbackMatch[1];
-        const rawUrl = fallbackMatch[2];
-        let snippet = '';
-
-        for (let j = i + 1; j < lines.length; j += 1) {
-          const next = lines[j].trim();
-          if (!next || isIgnoredLine(next)) continue;
-          if (isResultMarker(next)) break;
-          if (next.startsWith('http')) continue;
-          snippet = next;
-          break;
-        }
-
-        addResult(title, rawUrl, snippet);
-      }
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const next = lines[j].trim();
+      if (!next || isIgnoredLine(next)) continue;
+      if (next.match(RESULT_LINE_PATTERN)) break;
+      if (next.startsWith('![') || next.startsWith('[') && next.includes('](') && next.includes('http')) continue;
+      if (next.startsWith('http')) continue;
+      if (next.startsWith('*')) continue;
+      snippet = next;
+      break;
     }
+
+    addResult(title, rawUrl, snippet);
   }
 
   return results;
