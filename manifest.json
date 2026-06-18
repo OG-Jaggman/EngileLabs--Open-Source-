@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "EngineLabs Search",
+  "version": "1.0.0",
+  "description": "EngineLabs search popup for browsing results from the web.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://r.jina.ai/*",
+    "https://www.bing.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "EngineLabs Search",
+    "default_icon": {
+      "16": "EngineLabs.png",
+      "48": "EngineLabs.png",
+      "128": "EngineLabs.png"
+    }
+  },
+  "icons": {
+    "16": "EngineLabs.png",
+    "48": "EngineLabs.png",
+    "128": "EngineLabs.png"
+  }
+}
