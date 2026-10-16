@@ -19,4 +19,5 @@ This project is now an extension-only setup for EngineLabs. There is no Python s
 ## Notes
 
 - The extension uses a lightweight search proxy in the browser.
-- It is intentionally simple and transparent, not a real AI model.
+- It is intentionally simple and transparent.
+- This does not contain any AI models.
